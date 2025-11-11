@@ -1,5 +1,8 @@
 return function()
-    local severe = require(game:GetService("ReplicatedStorage"):WaitForChild("VSevere"))
+    local ReplicatedStorage = game:GetService("ReplicatedStorage")
+    local severe = require(ReplicatedStorage:WaitForChild("VSevere"))
+
+    -- Retrieve path/name pairs from caller's config
     local env = getfenv(2) or getfenv()
     local paths, names = {}, {}
     local i = 1
