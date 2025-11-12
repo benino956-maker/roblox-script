@@ -10,8 +10,9 @@ return function()
 
     local severe = require(severeModule)
 
-    -- Read path/name pairs from caller (your config)
     local env = getfenv(2) or getfenv()
+    local debugging = rawget(env, "debugging") or getgenv().debugging
+
     local paths, names = {}, {}
     local i = 1
     while true do
@@ -36,14 +37,28 @@ return function()
         local path = paths[i]
         local label = names[i]
 
+        if debugging then
+            print("\nChecking models for: " .. label)
+        end
+
         if path:IsA("Folder") then
-            for _, obj in ipairs(path:GetChildren()) do
+            for _, obj in ipairs(path:GetDescendants()) do
+                if debugging then
+                    print(obj.Name .. " is a " .. obj.ClassName)
+                end
                 if obj:IsA("Model") then
                     handleModel(obj, obj.Name)
                 end
             end
         elseif path:IsA("Model") then
+            if debugging then
+                print(label .. " is a " .. path.ClassName)
+            end
             handleModel(path, label)
+        else
+            if debugging then
+                print(label .. " is a " .. path.ClassName .. " (not Model/Folder)")
+            end
         end
     end
 end
