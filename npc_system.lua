@@ -10,9 +10,8 @@ return function()
 
     local severe = require(severeModule)
 
-    -- Read path/name pairs from caller (your config)
     local env = getfenv(2) or getfenv()
-    local debugging = rawget(env, "debugging") or getgenv().debugging
+    local debugging = rawget(env, "debugging") or (getgenv and getgenv().debugging) or false
 
     local paths, names = {}, {}
     local i = 1
