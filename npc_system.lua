@@ -1,8 +1,16 @@
 return function()
-    local ReplicatedStorage = game:GetService("ReplicatedStorage")
-    local severe = require(ReplicatedStorage:WaitForChild("VSevere"))
+    local rs
+    if game and typeof(game) == "Instance" and game.GetService then
+        rs = game:GetService("ReplicatedStorage")
+    end
+    assert(rs, "ReplicatedStorage not found—make sure you are running this in Roblox.")
 
-    -- Retrieve path/name pairs from caller's config
+    local severeModule = rs:FindFirstChild("VSevere") or rs:WaitForChild("VSevere", 5)
+    assert(severeModule, "VSevere module not found—did you install Severe correctly?")
+
+    local severe = require(severeModule)
+
+    -- Read path/name pairs from caller (your config)
     local env = getfenv(2) or getfenv()
     local paths, names = {}, {}
     local i = 1
