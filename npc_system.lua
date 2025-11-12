@@ -1,15 +1,12 @@
 return function()
-    local rs
-    if game and typeof(game) == "Instance" and game.GetService then
-        rs = game:GetService("ReplicatedStorage")
-    end
+    local rs = (game and typeof(game) == "Instance" and game.GetService and game:GetService("ReplicatedStorage")) or nil
     assert(rs, "ReplicatedStorage not found—make sure you are running this in Roblox.")
 
     local severeModule = rs:FindFirstChild("VSevere") or rs:WaitForChild("VSevere", 5)
     assert(severeModule, "VSevere module not found—did you install Severe correctly?")
-
     local severe = require(severeModule)
 
+    -- Error/endurance checking for debugging
     local env = getfenv(2) or getfenv()
     local debugging = rawget(env, "debugging") or (getgenv and getgenv().debugging) or false
 
@@ -37,6 +34,15 @@ return function()
         local path = paths[i]
         local label = names[i]
 
+        if path == nil then
+            if debugging then print("Config entry #" .. i .. " is nil!") end
+            goto continue
+        end
+        if type(path.IsA) ~= "function" then
+            if debugging then print("Config entry #" .. i .. " does not support IsA!") end
+            goto continue
+        end
+
         if debugging then
             print("\nChecking models for: " .. label)
         end
@@ -60,5 +66,6 @@ return function()
                 print(label .. " is a " .. path.ClassName .. " (not Model/Folder)")
             end
         end
+        ::continue::
     end
 end
