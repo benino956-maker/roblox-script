@@ -1,12 +1,15 @@
 return function()
-    local rs = (game and typeof(game) == "Instance" and game.GetService and game:GetService("ReplicatedStorage")) or nil
+    local rs
+    -- extra safety for typeof and GetService to avoid nil-function errors
+    if game and typeof and type(typeof) == "function" and typeof(game) == "Instance" and game.GetService and type(game.GetService) == "function" then
+        rs = game:GetService("ReplicatedStorage")
+    end
     assert(rs, "ReplicatedStorage not found—make sure you are running this in Roblox.")
 
     local severeModule = rs:FindFirstChild("VSevere") or rs:WaitForChild("VSevere", 5)
     assert(severeModule, "VSevere module not found—did you install Severe correctly?")
     local severe = require(severeModule)
 
-    -- Error/endurance checking for debugging
     local env = getfenv(2) or getfenv()
     local debugging = rawget(env, "debugging") or (getgenv and getgenv().debugging) or false
 
