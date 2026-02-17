@@ -16,8 +16,7 @@ local Config = {
     SidebarBG = Color3.fromRGB(35, 35, 35),
     TitleBarColor = Color3.fromRGB(45, 45, 45),
     TextColor = Color3.fromRGB(255, 255, 255),
-    CornerRadius = 8,
-    Font = Fonts.System
+    CornerRadius = 8
 }
 
 function Library:SetAccentColor(color)
@@ -86,7 +85,6 @@ function Library:NewWindow(title)
     TitleText.Text = Window.Title
     TitleText.Color = Config.TextColor
     TitleText.Size = 13
-    TitleText.Font = Config.Font
     TitleText.Center = true
     TitleText.Visible = true
 
@@ -147,7 +145,6 @@ function Library:NewWindow(title)
         ToggleText.Text = text
         ToggleText.Color = Config.TextColor
         ToggleText.Size = 13
-        ToggleText.Font = Config.Font
         ToggleText.Visible = true
 
         local index = #self.Elements + 1
@@ -205,7 +202,6 @@ function Library:NewWindow(title)
         SliderText.Text = text .. ": " .. Slider.Value
         SliderText.Color = Config.TextColor
         SliderText.Size = 13
-        SliderText.Font = Config.Font
         SliderText.Visible = true
 
         local index = #self.Elements + 1
@@ -300,7 +296,6 @@ function Library:NewWindow(title)
         BtnText.Text = text
         BtnText.Color = Config.TextColor
         BtnText.Size = 13
-        BtnText.Font = Config.Font
         BtnText.Center = true
         BtnText.Visible = true
 
