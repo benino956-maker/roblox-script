@@ -1,6 +1,4 @@
---// Matcha UI Library - Full Feature Build
---// Author: Matcha
---// No syntax errors - Pure LuaU
+
 
 local Players = game:GetService("Players")
 local UIS = game:GetService("UserInputService")
