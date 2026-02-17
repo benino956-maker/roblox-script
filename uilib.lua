@@ -1,406 +1,337 @@
--- uilib.lua
--- Minimal UI library for Matcha, returns Menu instance
+-- Matcha LuaVM Script
+-- Fully compatible with documented APIs only
+-- macOS Styled UI Library for Matcha LuaVM
 
-local Players = game:GetService("Players")
-local LocalPlayer = Players.LocalPlayer
-local Mouse = LocalPlayer and LocalPlayer:GetMouse()
+local Library = {}
+Library.__index = Library
 
-local function getMousePos()
-    if not Mouse then
-        return Vector2.new()
-    end
-    return Vector2.new(Mouse.X, Mouse.Y)
+-- Services (Emulated via Matcha)
+local UserInputService = game:GetService("UserInputService")
+local Workspace = game:GetService("Workspace")
+
+-- Configuration
+local Config = {
+    AccentColor = Color3.fromRGB(0, 122, 255), -- macOS Blue
+    WindowBG = Color3.fromRGB(30, 30, 30),
+    SidebarBG = Color3.fromRGB(35, 35, 35),
+    TitleBarColor = Color3.fromRGB(45, 45, 45),
+    TextColor = Color3.fromRGB(255, 255, 255),
+    CornerRadius = 8,
+    Font = Fonts.System
+}
+
+function Library:SetAccentColor(color)
+    Config.AccentColor = color
 end
 
-local function rectContains(pos, size, p)
-    return p.X >= pos.X and p.X <= pos.X + size.X
-       and p.Y >= pos.Y and p.Y <= pos.Y + size.Y
+-- Registry for cleanup
+local Registry = {
+    Drawings = {},
+    Windows = {}
+}
+
+-- Utility: Is mouse over a region?
+local function IsMouseOver(pos, size)
+    local mouseLoc = UserInputService:GetMouseLocation()
+    return mouseLoc.X >= pos.X and mouseLoc.X <= pos.X + size.X and
+           mouseLoc.Y >= pos.Y and mouseLoc.Y <= pos.Y + size.Y
 end
 
-local function newRect(z)
-    local d = Drawing.new("Square")
-    d.Visible = true
-    d.Filled = true
-    d.Color = Color3.fromRGB(25, 25, 25)
-    d.ZIndex = z or 0
-    d.Thickness = 1
-    return d
-end
-
-local function newText(z)
-    local d = Drawing.new("Text")
-    d.Visible = true
-    d.Font = Drawing.Fonts.UI
-    d.Size = 13
-    d.Color = Color3.fromRGB(230, 230, 230)
-    d.ZIndex = z or 0
-    d.Center = false
-    return d
-end
-
-local Menu = {}
-Menu.__index = Menu
-
-function Menu.new()
-    local self = setmetatable({}, Menu)
-
-    self.title = "Menu"
-    self.size = Vector2.new(400, 260)
-    self.position = Vector2.new(200, 200)
-    self.tabs = {}
-    self.openTab = nil
-    self.dragging = false
-    self.dragOffset = Vector2.new()
-    self.running = true
-    self.watermarkEnabled = false
-
-    self.bg = newRect(1)
-    self.border = newRect(2); self.border.Filled = false
-    self.titleBar = newRect(3)
-    self.titleText = newText(4)
-
-    self.drawings = { self.bg, self.border, self.titleBar, self.titleText }
-
-    self.tabHeight = 26
-    self.headerHeight = 24
-    self.padding = 8
-
-    coroutine.wrap(function()
-        self:MainLoop()
-    end)()
-
-    return self
-end
-
--- Public API
-
-function Menu:SetMenuTitle(newTitle)
-    self.title = newTitle or self.title
-end
-
-function Menu:SetMenuSize(newSize)
-    self.size = newSize or self.size
-end
-
-function Menu:SetMenuPosition(newPos)
-    self.position = newPos or self.position
-end
-
-function Menu:SetWatermarkEnabled(v)
-    self.watermarkEnabled = not not v
-end
-
-function Menu:GetMenuSize()
-    return self.size
-end
-
-function Menu:CenterMenu()
-    local cam = workspace.CurrentCamera
-    local view = cam and cam.ViewportSize or Vector2.new(1920, 1080)
-    self.position = Vector2.new(
-        math.floor(view.X/2 - self.size.X/2),
-        math.floor(view.Y/2 - self.size.Y/2)
-    )
-end
-
-function Menu:Notification(text, time)
-    print("[UI Notification]", text)
-end
-
-function Menu:Unload()
-    self.running = false
-    for _, d in ipairs(self.drawings) do
-        pcall(function() d:Remove() end)
-    end
-    self.drawings = {}
-    setrobloxinput(true)
-end
-
--- Tab / Section
-
-function Menu:Tab(name)
-    local tab = {
-        name = name,
-        sections = {}
-    }
-    table.insert(self.tabs, tab)
-    if not self.openTab then
-        self.openTab = tab
-    end
-
-    local Section = {}
-    Section.__index = Section
-
-    function Section:Toggle(label, value, callback, unsafe, tooltip)
-        local item = {
-            type = "toggle",
-            label = label,
-            value = value or false,
-            callback = callback,
-            unsafe = unsafe or false,
-            tooltip = tooltip
-        }
-        table.insert(self.items, item)
-        return {
-            Set = function(_, v)
-                item.value = v
-                if item.callback then item.callback(v) end
+-- Render and Input Manager
+local function StartRenderLoop()
+    task.spawn(function()
+        while true do
+            local mouseLoc = UserInputService:GetMouseLocation()
+            local mouse1Down = ismouse1pressed()
+            
+            for _, window in ipairs(Registry.Windows) do
+                window:Update(mouseLoc, mouse1Down)
             end
-        }
-    end
-
-    function Section:Slider(label, value, step, min, max, suffix, callback)
-        local item = {
-            type = "slider",
-            label = label,
-            value = value or min or 0,
-            step = step or 1,
-            min = min or 0,
-            max = max or 100,
-            suffix = suffix or "",
-            callback = callback
-        }
-        table.insert(self.items, item)
-        return {
-            Set = function(_, v)
-                item.value = v
-                if item.callback then item.callback(v) end
-            end
-        }
-    end
-
-    function Section:Dropdown(label, value, choices, multi, callback)
-        local item = {
-            type = "dropdown",
-            label = label,
-            value = value or {},
-            choices = choices or {},
-            multi = multi or false,
-            callback = callback,
-            open = false
-        }
-        table.insert(self.items, item)
-        return {
-            Set = function(_, v)
-                item.value = v
-                if item.callback then item.callback(v) end
-            end,
-            UpdateChoices = function(_, newChoices)
-                item.choices = newChoices or {}
-            end
-        }
-    end
-
-    function Section:Button(label, callback)
-        local item = {
-            type = "button",
-            label = label,
-            callback = callback
-        }
-        table.insert(self.items, item)
-        return {}
-    end
-
-    function Section:Textbox(label, value, callback)
-        local item = {
-            type = "textbox",
-            label = label,
-            value = value or "",
-            callback = callback,
-            active = false
-        }
-        table.insert(self.items, item)
-        return {
-            Set = function(_, v)
-                item.value = v
-                if item.callback then item.callback(v) end
-            end
-        }
-    end
-
-    function tab:Section(sectionName)
-        local section = {
-            name = sectionName,
-            items = {}
-        }
-        setmetatable(section, Section)
-        table.insert(self.sections, section)
-        return section
-    end
-
-    return tab
-end
-
-function Menu:CreateSettingsTab(customName)
-    local tab = self:Tab(customName or "Settings")
-    local sec = tab:Section("Menu")
-    sec:Button("Unload", function()
-        self:Unload()
+            
+            task.wait()
+        end
     end)
-    return tab, sec, sec
 end
 
--- Internal draw / input
+function Library:NewWindow(title)
+    local Window = {
+        Title = title or "Window",
+        Position = Vector2.new(100, 100),
+        Size = Vector2.new(500, 350),
+        Dragging = false,
+        DragOffset = Vector2.new(0, 0),
+        Visible = true,
+        Elements = {},
+        Drawings = {}
+    }
+    setmetatable(Window, {__index = Window})
 
-function Menu:Draw()
-    local pos = self.position
-    local size = self.size
+    -- Background
+    local MainFrame = Drawing.new("Square")
+    MainFrame.Color = Config.WindowBG
+    MainFrame.Thickness = 0
+    MainFrame.Filled = true
+    MainFrame.Transparency = 0.95
+    MainFrame.Visible = true
 
-    self.bg.Position = pos
-    self.bg.Size = size
-    self.bg.Color = Color3.fromRGB(20, 20, 20)
+    -- Title Bar
+    local TitleBar = Drawing.new("Square")
+    TitleBar.Color = Config.TitleBarColor
+    TitleBar.Thickness = 0
+    TitleBar.Filled = true
+    TitleBar.Visible = true
 
-    self.border.Position = pos
-    self.border.Size = size
-    self.border.Color = Color3.fromRGB(60, 60, 60)
+    -- Title Text
+    local TitleText = Drawing.new("Text")
+    TitleText.Text = Window.Title
+    TitleText.Color = Config.TextColor
+    TitleText.Size = 13
+    TitleText.Font = Config.Font
+    TitleText.Center = true
+    TitleText.Visible = true
 
-    self.titleBar.Position = pos
-    self.titleBar.Size = Vector2.new(size.X, self.headerHeight)
-    self.titleBar.Color = Color3.fromRGB(30, 30, 30)
-
-    self.titleText.Text = self.title
-    self.titleText.Position = pos + Vector2.new(self.padding, 4)
-
-    local tabY = pos.Y + self.headerHeight
-    local tabX = pos.X + self.padding
-    local tabW = 70
-    local tabH = self.tabHeight
-
-    local dynamic = {}
-
-    for i, tab in ipairs(self.tabs) do
-        local active = (tab == self.openTab)
-        local tRect = newRect(3)
-        tRect.Position = Vector2.new(tabX + (i-1)*(tabW+4), tabY)
-        tRect.Size = Vector2.new(tabW, tabH)
-        tRect.Color = active and Color3.fromRGB(50, 50, 50) or Color3.fromRGB(35, 35, 35)
-        table.insert(dynamic, {type="tab", rect=tRect, tab=tab})
-
-        local tText = newText(4)
-        tText.Text = tab.name
-        tText.Position = tRect.Position + Vector2.new(8, 6)
-        table.insert(dynamic, {type="text", obj=tText})
+    -- Traffic Lights (Decorative for now)
+    local function CreateButton(color, offset)
+        local btn = Drawing.new("Circle")
+        btn.Color = color
+        btn.Radius = 6
+        btn.Filled = true
+        btn.Thickness = 0
+        btn.Visible = true
+        return btn
     end
 
-    if self.openTab then
-        local contentX = pos.X + self.padding
-        local contentY = pos.Y + self.headerHeight + self.tabHeight + self.padding
+    local CloseBtn = CreateButton(Color3.fromRGB(255, 95, 87), 20)
+    local MinBtn = CreateButton(Color3.fromRGB(255, 189, 46), 40)
+    local MaxBtn = CreateButton(Color3.fromRGB(40, 201, 64), 60)
 
-        for _, section in ipairs(self.openTab.sections) do
-            local sTitle = newText(4)
-            sTitle.Text = section.name
-            sTitle.Position = Vector2.new(contentX, contentY)
-            table.insert(dynamic, {type="text", obj=sTitle})
-            contentY = contentY + 18
+    -- Sidebar
+    local Sidebar = Drawing.new("Square")
+    Sidebar.Color = Config.SidebarBG
+    Sidebar.Thickness = 0
+    Sidebar.Filled = true
+    Sidebar.Visible = true
 
-            for _, item in ipairs(section.items) do
-                local labelText = newText(4)
-                labelText.Text = item.label
-                labelText.Position = Vector2.new(contentX + 20, contentY)
-                table.insert(dynamic, {type="text", obj=labelText})
+    Window.Drawings = {
+        MainFrame = MainFrame,
+        TitleBar = TitleBar,
+        Sidebar = Sidebar,
+        TitleText = TitleText,
+        CloseBtn = CloseBtn,
+        MinBtn = MinBtn,
+        MaxBtn = MaxBtn
+    }
 
-                if item.type == "toggle" then
-                    local box = newRect(4)
-                    box.Size = Vector2.new(14, 14)
-                    box.Position = Vector2.new(contentX, contentY)
-                    box.Color = item.value and Color3.fromRGB(0, 170, 255) or Color3.fromRGB(40, 40, 40)
-                    table.insert(dynamic, {type="toggle", rect=box, item=item})
+    function Window:AddToggle(text, default, callback)
+        local Toggle = {
+            Text = text,
+            Enabled = default or false,
+            Callback = callback or function() end
+        }
 
-                elseif item.type == "button" then
-                    local btn = newRect(4)
-                    btn.Size = Vector2.new(80, 18)
-                    btn.Position = Vector2.new(contentX, contentY)
-                    btn.Color = Color3.fromRGB(45, 45, 45)
-                    table.insert(dynamic, {type="button", rect=btn, item=item})
+        local ToggleFrame = Drawing.new("Square")
+        ToggleFrame.Color = Color3.fromRGB(60, 60, 60)
+        ToggleFrame.Thickness = 0
+        ToggleFrame.Filled = true
+        ToggleFrame.Size = Vector2.new(16, 16)
+        ToggleFrame.Visible = true
 
-                elseif item.type == "slider" then
-                    local bar = newRect(4)
-                    bar.Size = Vector2.new(120, 4)
-                    bar.Position = Vector2.new(contentX, contentY + 8)
-                    bar.Color = Color3.fromRGB(40, 40, 40)
-                    table.insert(dynamic, {type="slider", rect=bar, item=item})
+        local ToggleCheck = Drawing.new("Square")
+        ToggleCheck.Color = Config.AccentColor
+        ToggleCheck.Thickness = 0
+        ToggleCheck.Filled = true
+        ToggleCheck.Size = Vector2.new(10, 10)
+        ToggleCheck.Visible = Toggle.Enabled
 
-                elseif item.type == "dropdown" then
-                    local dd = newRect(4)
-                    dd.Size = Vector2.new(120, 18)
-                    dd.Position = Vector2.new(contentX, contentY)
-                    dd.Color = Color3.fromRGB(40, 40, 40)
-                    table.insert(dynamic, {type="dropdown", rect=dd, item=item})
+        local ToggleText = Drawing.new("Text")
+        ToggleText.Text = text
+        ToggleText.Color = Config.TextColor
+        ToggleText.Size = 13
+        ToggleText.Font = Config.Font
+        ToggleText.Visible = true
 
-                elseif item.type == "textbox" then
-                    local tb = newRect(4)
-                    tb.Size = Vector2.new(120, 18)
-                    tb.Position = Vector2.new(contentX, contentY)
-                    tb.Color = Color3.fromRGB(40, 40, 40)
-                    table.insert(dynamic, {type="textbox", rect=tb, item=item})
-                end
+        local index = #self.Elements + 1
+        table.insert(self.Elements, function(basePos)
+            local absPos = basePos + Vector2.new(0, (index - 1) * 30)
+            ToggleFrame.Position = absPos
+            ToggleCheck.Position = absPos + Vector2.new(3, 3)
+            ToggleCheck.Visible = Toggle.Enabled
+            ToggleText.Position = absPos + Vector2.new(25, 1)
 
-                contentY = contentY + 22
+            if ismouse1pressed() and IsMouseOver(absPos, ToggleFrame.Size) then
+                task.wait(0.1)
+                Toggle.Enabled = not Toggle.Enabled
+                Toggle.Callback(Toggle.Enabled)
+            end
+        end)
+
+        table.insert(self.Drawings, ToggleFrame)
+        table.insert(self.Drawings, ToggleCheck)
+        table.insert(self.Drawings, ToggleText)
+    end
+
+    function Window:AddSlider(text, min, max, default, callback)
+        local Slider = {
+            Text = text,
+            Min = min or 0,
+            Max = max or 100,
+            Value = default or min,
+            Callback = callback or function() end,
+            Dragging = false
+        }
+
+        local SliderBack = Drawing.new("Square")
+        SliderBack.Color = Color3.fromRGB(60, 60, 60)
+        SliderBack.Thickness = 0
+        SliderBack.Filled = true
+        SliderBack.Size = Vector2.new(150, 4)
+        SliderBack.Visible = true
+
+        local SliderMain = Drawing.new("Square")
+        SliderMain.Color = Config.AccentColor
+        SliderMain.Thickness = 0
+        SliderMain.Filled = true
+        SliderMain.Size = Vector2.new(0, 4)
+        SliderMain.Visible = true
+
+        local SliderDot = Drawing.new("Circle")
+        SliderDot.Color = Color3.fromRGB(200, 200, 200)
+        SliderDot.Radius = 6
+        SliderDot.Filled = true
+        SliderDot.Thickness = 0
+        SliderDot.Visible = true
+
+        local SliderText = Drawing.new("Text")
+        SliderText.Text = text .. ": " .. Slider.Value
+        SliderText.Color = Config.TextColor
+        SliderText.Size = 13
+        SliderText.Font = Config.Font
+        SliderText.Visible = true
+
+        local index = #self.Elements + 1
+        table.insert(self.Elements, function(basePos)
+            local absPos = basePos + Vector2.new(0, (index - 1) * 40)
+            SliderBack.Position = absPos + Vector2.new(0, 2)
+            SliderMain.Position = absPos + Vector2.new(0, 2)
+            SliderText.Position = absPos + Vector2.new(0, -15)
+
+            local mouseLoc = UserInputService:GetMouseLocation()
+            if ismouse1pressed() and IsMouseOver(absPos - Vector2.new(0, 5), Vector2.new(150, 15)) then
+                Slider.Dragging = true
+            elseif not ismouse1pressed() then
+                Slider.Dragging = false
             end
 
-            contentY = contentY + 6
-        end
-    end
-
-    return dynamic
-end
-
-function Menu:HandleInput(dynamic)
-    local mousePos = getMousePos()
-    local mouseDown = iskeypressed(0x01)
-
-    local headerRect = {pos = self.position, size = Vector2.new(self.size.X, self.headerHeight)}
-
-    if mouseDown and not self.dragging and rectContains(headerRect.pos, headerRect.size, mousePos) then
-        self.dragging = true
-        self.dragOffset = mousePos - self.position
-    elseif not mouseDown then
-        self.dragging = false
-    end
-
-    if self.dragging then
-        self.position = mousePos - self.dragOffset
-    end
-
-    if mouseDown then
-        for _, obj in ipairs(dynamic) do
-            if obj.type == "tab" then
-                local r = obj.rect
-                if rectContains(r.Position, r.Size, mousePos) then
-                    self.openTab = obj.tab
-                    break
-                end
-            elseif obj.type == "toggle" then
-                local r = obj.rect
-                if rectContains(r.Position, r.Size, mousePos) then
-                    obj.item.value = not obj.item.value
-                    if obj.item.callback then obj.item.callback(obj.item.value) end
-                    break
-                end
-            elseif obj.type == "button" then
-                local r = obj.rect
-                if rectContains(r.Position, r.Size, mousePos) then
-                    if obj.item.callback then obj.item.callback() end
-                    break
+            if Slider.Dragging then
+                local pct = math.clamp((mouseLoc.X - absPos.X) / 150, 0, 1)
+                local val = math.floor(Slider.Min + (Slider.Max - Slider.Min) * pct)
+                if val ~= Slider.Value then
+                    Slider.Value = val
+                    Slider.Callback(val)
+                    SliderText.Text = text .. ": " .. val
                 end
             end
+
+            local progress = (Slider.Value - Slider.Min) / (Slider.Max - Slider.Min)
+            SliderMain.Size = Vector2.new(150 * progress, 4)
+            SliderDot.Position = absPos + Vector2.new(150 * progress, 4)
+        end)
+
+        table.insert(self.Drawings, SliderBack)
+        table.insert(self.Drawings, SliderMain)
+        table.insert(self.Drawings, SliderDot)
+        table.insert(self.Drawings, SliderText)
+    end
+
+    function Window:Update(mouseLoc, mouse1Down)
+        if not self.Visible then return end
+
+        if mouse1Down then
+            if not self.Dragging and IsMouseOver(self.Position, Vector2.new(self.Size.X, 28)) then
+                self.Dragging = true
+                self.DragOffset = self.Position - mouseLoc
+            end
+        else
+            self.Dragging = false
+        end
+
+        if self.Dragging then
+            self.Position = mouseLoc + self.DragOffset
+        end
+
+        -- Update Visuals
+        MainFrame.Position = self.Position
+        MainFrame.Size = self.Size
+
+        TitleBar.Position = self.Position
+        TitleBar.Size = Vector2.new(self.Size.X, 28)
+
+        Sidebar.Position = self.Position + Vector2.new(0, 28)
+        Sidebar.Size = Vector2.new(120, self.Size.Y - 28)
+
+        TitleText.Position = self.Position + Vector2.new(self.Size.X / 2, 6)
+        
+        CloseBtn.Position = self.Position + Vector2.new(20, 14)
+        MinBtn.Position = self.Position + Vector2.new(40, 14)
+        MaxBtn.Position = self.Position + Vector2.new(60, 14)
+
+        -- Update Elements
+        for _, update in ipairs(self.Elements) do
+            local absPos = self.Position + Vector2.new(135, 50) -- Offset for sidebar
+            update(absPos)
         end
     end
-end
 
-function Menu:MainLoop()
-    setrobloxinput(false)
-    while self.running do
-        for i = #self.drawings, 5, -1 do
-            local d = self.drawings[i]
-            pcall(function() d:Remove() end)
-            table.remove(self.drawings, i)
-        end
+    function Window:AddButton(text, callback)
+        local Button = {
+            Text = text,
+            Callback = callback or function() end,
+            Position = Vector2.new(0, 0) -- Relative to window
+        }
 
-        local dynamic = self:Draw()
-        self:HandleInput(dynamic)
-        task.wait()
+        local BtnFrame = Drawing.new("Square")
+        BtnFrame.Color = Config.AccentColor
+        BtnFrame.Thickness = 0
+        BtnFrame.Filled = true
+        BtnFrame.Size = Vector2.new(100, 24)
+        BtnFrame.Visible = true
+
+        local BtnText = Drawing.new("Text")
+        BtnText.Text = text
+        BtnText.Color = Config.TextColor
+        BtnText.Size = 13
+        BtnText.Font = Config.Font
+        BtnText.Center = true
+        BtnText.Visible = true
+
+        local index = #self.Elements + 1
+        table.insert(self.Elements, function(basePos)
+            local absPos = basePos + Vector2.new(0, (index - 1) * 30)
+            BtnFrame.Position = absPos
+            BtnText.Position = absPos + Vector2.new(50, 4)
+
+            if ismouse1pressed() and IsMouseOver(absPos, BtnFrame.Size) then
+                task.wait(0.1) -- Debounce
+                Button.Callback()
+            end
+        end)
+
+        table.insert(self.Drawings, BtnFrame)
+        table.insert(self.Drawings, BtnText)
     end
+
+    function Window:Destroy()
+        self.Visible = false
+        for _, drawing in pairs(self.Drawings) do
+            drawing:Remove()
+        end
+    end
+
+    table.insert(Registry.Windows, Window)
+    return Window
 end
 
-return Menu.new()
+-- Initialize Loop
+StartRenderLoop()
+
+return Library
